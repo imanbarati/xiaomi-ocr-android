@@ -1,0 +1,50 @@
+name: Build Xiaomi OCR Android
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Install Android NDK
+        run: sdkmanager "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Build llama.cpp Android server
+        run: |
+          git clone --depth 1 --branch b10568 https://github.com/ggml-org/llama.cpp.git
+          cmake -S llama.cpp -B llama.cpp/build-android \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-28 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=OFF \
+            -DGGML_OPENMP=OFF \
+            -DGGML_LLAMAFILE=OFF \
+            -DLLAMA_BUILD_SERVER=ON \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_CURL=OFF \
+            -DBUILD_SHARED_LIBS=OFF
+          cmake --build llama.cpp/build-android --target llama-server -j2
+          mkdir -p app/src/main/assets
+          find llama.cpp/build-android -type f -name llama-server -perm -111 -exec cp {} app/src/main/assets/llama-server \;
+          test -s app/src/main/assets/llama-server
+      - name: Build debug APK
+        run: |
+          gradle --no-daemon assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-ocr-a53-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
